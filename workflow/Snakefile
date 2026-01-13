@@ -1,0 +1,176 @@
+"""
+Snakemake workflow for mapping ancient DNA reads to reference genomes.
+Modular workflow with separate rules for mapping, damage estimation, and statistics.
+Handles both single-end and paired-end data.
+"""
+
+import pandas as pd
+import glob
+import os
+
+
+## ---------------------------------------------------------
+## Global parameters from config file
+
+PREFIX = config["prefix"]
+OUT_DIR = config["out_dir"]
+TMP_DIR = config["tmp_dir"]
+METADMG_CPP = config["metaDMG-cpp"]  ## path to metaDMG cpp module
+
+
+## ---------------------------------------------------------
+## Load sample metadata
+
+unit_df = pd.read_table(config["units"], comment="#").set_index(
+    ["sample_id", "lib_id", "unit_id"], drop=False
+)
+SAMPLES = unit_df.index.levels[0]
+
+
+## ---------------------------------------------------------
+## Helper functions
+
+
+def get_fq(wildcards):
+    """Get input FASTQ files for a sample unit (single-end or paired-end)."""
+    fq_se = unit_df.loc[(wildcards.sample, wildcards.lib, wildcards.unit), "fq_se"]
+    fq_pe1 = unit_df.loc[(wildcards.sample, wildcards.lib, wildcards.unit), "fq_pe1"]
+    fq_pe2 = unit_df.loc[(wildcards.sample, wildcards.lib, wildcards.unit), "fq_pe2"]
+
+    # If paired-end data exists, return all files (including collapsed reads if present)
+    if not pd.isnull(fq_pe1) and not pd.isnull(fq_pe2):
+        files = [fq_pe1, fq_pe2]
+        if not pd.isnull(fq_se):
+            files.append(fq_se)  # Add collapsed/merged reads
+        return files
+    # Otherwise return single-end data
+    elif not pd.isnull(fq_se):
+        return [fq_se]
+    else:
+        return []
+
+
+def get_bam_lib(wildcards):
+    """Get all BAM files for units in a library."""
+    units = unit_df.loc[(wildcards.sample, wildcards.lib), "unit_id"]
+    files = [
+        f"{OUT_DIR}/{wildcards.sample}/bam/{wildcards.sample}.{wildcards.lib}.{u}.{PREFIX}.{wildcards.ref}.init.bam"
+        for u in units
+    ]
+    return files
+
+
+def get_bam_sample(wildcards):
+    """Get all BAM files for libraries in a sample."""
+    libs = unit_df.loc[(wildcards.sample), "lib_id"].unique()
+    files = [
+        f"{TMP_DIR}/{wildcards.sample}/{wildcards.sample}.{l}.{PREFIX}.{wildcards.ref}.mrkdup.bam"
+        for l in libs
+    ]
+    return files
+
+
+def get_all_libs_for_damage():
+    """Get all sample-library combinations for library-level damage analysis."""
+    libs_list = []
+    for sample in SAMPLES:
+        libs = unit_df.loc[(sample), "lib_id"].unique()
+        for lib in libs:
+            libs_list.append((sample, lib))
+    return libs_list
+
+
+## ---------------------------------------------------------
+## Output file sets (final targets)
+
+bam_final_all = expand(
+    f"{OUT_DIR}/{{sample}}/bam/{{sample}}.{PREFIX}.{{ref}}.mrkdup.{{ext}}",
+    ref=config["ref"],
+    sample=SAMPLES,
+    ext=["bam", "bam.bai"],
+)
+damage_sample_all = expand(
+    f"{OUT_DIR}/{{sample}}/metadamage/sample_level/{{ref}}.{PREFIX}.filter.{{ext}}",
+    sample=SAMPLES,
+    ref=config["ref"],
+    ext=[
+        "global.tsv",
+        "global.bdamage.gz",
+        "global.dfit.gz",
+        "local.tsv",
+        "local.bdamage.gz",
+        "local.dfit.gz",
+    ],
+)
+damage_lib_all = [
+    expand(
+        f"{OUT_DIR}/{{sample}}/metadamage/library_level/{{lib}}/{{ref}}.{PREFIX}.filter.{{ext}}",
+        zip,
+        sample=[s for s, l in get_all_libs_for_damage()],
+        lib=[l for s, l in get_all_libs_for_damage()],
+        ref=config["ref"],
+        ext=[
+            "global.tsv",
+            "global.bdamage.gz",
+            "global.dfit.gz",
+            "local.tsv",
+            "local.bdamage.gz",
+            "local.dfit.gz",
+        ],
+    )
+]
+mapdamage_all = expand(
+    f"{OUT_DIR}/{{sample}}/mapdamage/{{sample}}.{PREFIX}.{{ref}}.filter/{{ext}}",
+    ref=config["ref"],
+    sample=SAMPLES,
+    ext=["Fragmisincorporation_plot.pdf", "Length_plot.pdf"],
+)
+stats_all = expand(
+    f"{OUT_DIR}/{{sample}}/tables/{{sample}}.{PREFIX}.{{ref}}.filter.{{ext}}",
+    sample=SAMPLES,
+    ref=config["ref"],
+    ext=["bam_stats.tsv", "lib_stats.tsv"],
+)
+plots_sample_all = expand(
+    f"{OUT_DIR}/{{sample}}/plots/{{sample}}.{PREFIX}.{{ref}}.filter.summary.pdf",
+    sample=SAMPLES,
+    ref=config["ref"],
+)
+summary_all = [
+    expand(
+        f"{OUT_DIR}/summary/tables/{PREFIX}.{{ref}}.filter.{{ext}}",
+        ref=config["ref"],
+        ext=["bam_stats.tsv", "lib_stats.tsv"],
+    ),
+    expand(
+        f"{OUT_DIR}/summary/plots/{PREFIX}.{{ref}}.filter.{{ext}}",
+        ref=config["ref"],
+        ext=["bam_stats_coverage.pdf", "lib_stats_n_map_uniq_p_dup.pdf", 
+        "lib_stats_n_reads_n_map_uniq.pdf", "lib_stats_n_reads_p_dup.pdf", 
+        "lib_stats_p_dup.pdf"],
+    )
+]
+
+
+## ---------------------------------------------------------
+## Include modular rule files
+
+
+include: "rules/mapping.smk"
+include: "rules/damage.smk"
+include: "rules/stats.smk"
+
+
+## ---------------------------------------------------------
+## Target rule
+
+
+rule all:
+    input:
+        bam_final_all
+        + damage_sample_all
+        + damage_lib_all
+        + mapdamage_all
+        + stats_all
+        + plots_sample_all
+        + summary_all,

@@ -1,0 +1,22 @@
+prefix:
+  demo
+out_dir:
+  results
+units:
+  config/units.tsv
+ref:
+  ref_genome_a:
+    /path/to/bowtie2_prefix
+bt_param:
+   "-D 20 -R 3 -N 1 -L 20 -i S,1,0.50 --end-to-end --no-unal"
+bam_filter:
+  mq:
+    20
+  qlen:
+    25
+  rlen:
+    25
+tmp_dir:
+  /path/to/tmp/dir
+metaDMG-cpp:
+  /path/to/metaDMG-cpp

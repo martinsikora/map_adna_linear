@@ -81,7 +81,7 @@ r_fq <- map_dfr(infiles, ~ {
  ) |>
    as.numeric()
  
-  num_reads_total <- 2 * num_reads_paired + num_reads_unpaired
+  num_reads_total <- num_reads_paired + num_reads_unpaired
 
   r2 <- gsub(".*\\/", "", .x) |>
     strsplit("\\.") |>

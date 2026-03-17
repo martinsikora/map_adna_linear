@@ -89,6 +89,7 @@ r_fq <- map_dfr(infiles, ~ {
 
   tibble(
     sample_id = r2[1],
+    library_id = r2[2],
     rg_id = r2[3],
     num_reads_total = num_reads_total,
   )
@@ -112,8 +113,8 @@ r_markdup <- map_dfr(infiles, ~ {
   tibble(
     sample_id = r2[1],
     library_id = r1$LIBRARY,
-    num_reads_mapped = r1$UNPAIRED_READS_EXAMINED + 2 * r1$READ_PAIRS_EXAMINED,
-    num_reads_dup = r1$UNPAIRED_READ_DUPLICATES + 2 * r1$READ_PAIR_DUPLICATES,
+    num_reads_mapped = r1$UNPAIRED_READS_EXAMINED + r1$READ_PAIRS_EXAMINED,
+    num_reads_dup = r1$UNPAIRED_READ_DUPLICATES + r1$READ_PAIR_DUPLICATES,
   )
 })
 
